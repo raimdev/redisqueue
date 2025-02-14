@@ -4,10 +4,13 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: golang:1.23-bookworm
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
 
       - run: make setup
       - run: make install
@@ -24,4 +27,6 @@ jobs:
     services:
       redis:
         image: redis
+        ports:
+          - 6379:6379
 
