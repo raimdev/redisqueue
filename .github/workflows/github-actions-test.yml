@@ -6,6 +6,9 @@ jobs:
     runs-on: ubuntu-latest
     container: golang:1.23-bookworm
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - run: make setup
       - run: make install
       - run: make lint
