@@ -22,7 +22,6 @@ jobs:
 
       - run: make test
       - run: make enforce
-      - run: make coveralls
 
     services:
       redis:
