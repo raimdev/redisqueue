@@ -4,6 +4,7 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: golang:1.23-bookworm
     steps:
       - run: make setup
       - run: make install
