@@ -81,11 +81,8 @@ func (p *Producer) Enqueue(ctx context.Context, msg *Message) error {
 		ID:     msg.ID,
 		Stream: msg.Stream,
 		Values: msg.Values,
-	}
-	if p.options.ApproximateMaxLength {
-		args.MaxLen = p.options.StreamMaxLength
-	} else {
-		args.MaxLen = p.options.StreamMaxLength
+		MaxLen: p.options.StreamMaxLength,
+		Approx: p.options.ApproximateMaxLength,
 	}
 	id, err := p.redis.XAdd(ctx, args).Result()
 	if err != nil {
