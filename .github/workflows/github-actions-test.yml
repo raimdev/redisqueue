@@ -11,7 +11,12 @@ jobs:
 
       - run: make setup
       - run: make install
-      - run: make lint
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.5
+
       - run: make test
       - run: make enforce
       - run: make coveralls
