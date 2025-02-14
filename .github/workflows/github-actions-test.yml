@@ -1,0 +1,18 @@
+name: Build and run tests
+run-name: Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make setup
+      - run: make install
+      - run: make lint
+      - run: make test
+      - run: make enforce
+      - run: make coveralls
+
+    services:
+      redis:
+        image: redis
+
