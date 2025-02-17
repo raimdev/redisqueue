@@ -12,7 +12,6 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - run: make setup
       - run: make install
 
       - name: golangci-lint
