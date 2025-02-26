@@ -1,9 +1,9 @@
 output:
-  format: tab
+  formats:
+  - format: tab
 linters:
   disable-all: true
   enable:
-    - deadcode
     - depguard
     - dupl
     - goconst
@@ -11,24 +11,39 @@ linters:
     - gocyclo
     - gofmt
     - goimports
-    - golint
+    - revive
     - gosec
     - govet
     - ineffassign
-    - maligned
     - misspell
     - prealloc
-    - scopelint
-    - structcheck
+    - copyloopvar
+    - unused
     - typecheck
     - unconvert
-    - varcheck
 issues:
   exclude-use-default: false
-  max-per-linter: 0
+  max-issues-per-linter: 0
   max-same-issues: 0
   exclude-rules:
     - path: _test\.go
       linters:
+        - revive
         - dupl
         - scopelint
+
+# golangci-lint config
+linters-settings:
+  depguard:
+    rules:
+      prevent_unmaintained_packages:
+        list-mode: lax # allow unless explicitely denied
+        files:
+          - $all
+          - "!$test"
+        allow:
+          - $gostd
+        deny:
+          - pkg: io/ioutil
+            desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+

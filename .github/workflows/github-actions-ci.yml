@@ -1,0 +1,30 @@
+name: Build and run tests
+run-name: Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - run: make install
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.5
+
+      - run: make test
+      - run: make enforce
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+
