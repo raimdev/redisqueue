@@ -19,10 +19,10 @@ type ProducerOptions struct {
 	// More info here: https://redis.io/commands/xadd#capped-streams.
 	StreamMaxLength int64
 
-	// StreamMinId sets the minimum ID that will be used when calling XADD. This
+	// StreamMinID sets the minimum ID that will be used when calling XADD. This
 	// is useful when you want to ensure that the stream is trimmed to a certain
 	// point. More info here: https://redis.io/commands/xadd#capped-streams.
-	StreamMinId string
+	StreamMinID string
 
 	// UseApproximate determines whether to use the ~ with the MAXLEN and MINID
 	// option. This allows the stream trimming to done in a more efficient
@@ -89,7 +89,7 @@ func NewProducerWithOptions(ctx context.Context, options *ProducerOptions) (*Pro
 // set on msg.ID for your reference. msg.Values is also required.
 func (p *Producer) Enqueue(ctx context.Context, msg *Message) error {
 	maxLen := cmp.Or(msg.StreamMaxLength, p.options.StreamMaxLength)
-	minId := cmp.Or(msg.StreamMinId, p.options.StreamMinId)
+	minId := cmp.Or(msg.StreamMinID, p.options.StreamMinID)
 	if maxLen > 0 {
 		minId = ""
 	}

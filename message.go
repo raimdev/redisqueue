@@ -7,7 +7,7 @@ type Message struct {
 	ID              string
 	Stream          string
 	StreamMaxLength int64
-	StreamMinId     string
+	StreamMinID     string
 	TrimLimit       int64
 	Values          map[string]interface{}
 }
