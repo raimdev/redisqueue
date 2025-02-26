@@ -89,9 +89,9 @@ func NewProducerWithOptions(ctx context.Context, options *ProducerOptions) (*Pro
 // set on msg.ID for your reference. msg.Values is also required.
 func (p *Producer) Enqueue(ctx context.Context, msg *Message) error {
 	maxLen := cmp.Or(msg.StreamMaxLength, p.options.StreamMaxLength)
-	minId := cmp.Or(msg.StreamMinID, p.options.StreamMinID)
+	minID := cmp.Or(msg.StreamMinID, p.options.StreamMinID)
 	if maxLen > 0 {
-		minId = ""
+		minID = ""
 	}
 
 	args := &redis.XAddArgs{
@@ -99,7 +99,7 @@ func (p *Producer) Enqueue(ctx context.Context, msg *Message) error {
 		Stream: msg.Stream,
 		Values: msg.Values,
 		MaxLen: maxLen,
-		MinID:  minId,
+		MinID:  minID,
 		Approx: p.options.UseApproximate,
 		Limit:  cmp.Or(msg.TrimLimit, p.options.TrimLimit),
 	}
