@@ -2,6 +2,7 @@ package redisqueue
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -53,6 +54,12 @@ type ConsumerOptions struct {
 	BufferSize int
 	// Concurrency dictates how many goroutines to spawn to handle the messages.
 	Concurrency int
+
+	// MaxDeliveryCount is the maximum number of times a message can be delivered
+	// before it is considered failed. If this is set to 0, the message will be
+	// retried indefinitely
+	MaxDeliveryCount int64
+
 	// RedisClient supersedes the RedisOptions field, and allows you to inject
 	// an already-made Redis Client for use in the consumer. This may be either
 	// the standard client or a cluster client.
@@ -276,6 +283,15 @@ func (c *Consumer) reclaim(ctx context.Context) {
 					msgs := make([]string, 0)
 
 					for _, r := range res {
+						slog.Info("pending message", "id", r.ID, "count", r.RetryCount, "max", c.options.MaxDeliveryCount)
+						if c.options.MaxDeliveryCount > 0 && r.RetryCount >= c.options.MaxDeliveryCount {
+							slog.Info("message exceeded delivery count limit", "id", r.ID, "count", r.RetryCount, "max", c.options.MaxDeliveryCount)
+							err = c.redis.XAck(ctx, stream, c.options.GroupName, r.ID).Err()
+							if err != nil {
+								c.Errors <- errors.Wrapf(err, "error acknowledging after retry count exceeded for %q stream and %q message, ", stream, r.ID)
+								continue
+							}
+						}
 						if r.Idle >= c.options.VisibilityTimeout {
 							claimres, err := c.redis.XClaim(ctx, &redis.XClaimArgs{
 								Stream:   stream,
@@ -331,7 +347,7 @@ func (c *Consumer) poll(ctx context.Context) {
 		case <-c.stopPoll:
 			// once the polling has stopped (i.e. there will be no more messages
 			// put onto c.queue), stop all of the workers
-			for i := 0; i < c.options.Concurrency; i++ {
+			for range c.options.Concurrency {
 				c.stopWorkers <- struct{}{}
 			}
 			return

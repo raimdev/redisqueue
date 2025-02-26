@@ -67,7 +67,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("bubbles up errors", func(tt *testing.T) {
 		ctx := context.Background()
-		p, err := NewProducerWithOptions(context.Background(), &ProducerOptions{ApproximateMaxLength: true})
+		p, err := NewProducerWithOptions(context.Background(), &ProducerOptions{UseApproximate: true})
 		require.NoError(t, err)
 
 		msg := &Message{

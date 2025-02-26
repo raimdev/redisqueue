@@ -1,6 +1,7 @@
 package redisqueue
 
 import (
+	"cmp"
 	"context"
 
 	"github.com/redis/go-redis/v9"
@@ -17,10 +18,20 @@ type ProducerOptions struct {
 	// So ideally, you'll set this number to be as high as you can makee it.
 	// More info here: https://redis.io/commands/xadd#capped-streams.
 	StreamMaxLength int64
-	// ApproximateMaxLength determines whether to use the ~ with the MAXLEN
+
+	// StreamMinId sets the minimum ID that will be used when calling XADD. This
+	// is useful when you want to ensure that the stream is trimmed to a certain
+	// point. More info here: https://redis.io/commands/xadd#capped-streams.
+	StreamMinId string
+
+	// UseApproximate determines whether to use the ~ with the MAXLEN and MINID
 	// option. This allows the stream trimming to done in a more efficient
 	// manner. More info here: https://redis.io/commands/xadd#capped-streams.
-	ApproximateMaxLength bool
+	UseApproximate bool
+
+	// TrimLimit sets LIMIT for XADD
+	TrimLimit int64
+
 	// RedisClient supersedes the RedisOptions field, and allows you to inject
 	// an already-made Redis Client for use in the consumer. This may be either
 	// the standard client or a cluster client.
@@ -41,12 +52,12 @@ type Producer struct {
 }
 
 var defaultProducerOptions = &ProducerOptions{
-	StreamMaxLength:      1000,
-	ApproximateMaxLength: true,
+	StreamMaxLength: 1000,
+	UseApproximate:  true,
 }
 
 // NewProducer uses a default set of options to create a Producer. It sets
-// StreamMaxLength to 1000 and ApproximateMaxLength to true. In most production
+// StreamMaxLength to 1000 and UseApproximate to true. In most production
 // environments, you'll want to use NewProducerWithOptions.
 func NewProducer() (*Producer, error) {
 	return NewProducerWithOptions(context.Background(), defaultProducerOptions)
@@ -77,12 +88,20 @@ func NewProducerWithOptions(ctx context.Context, options *ProducerOptions) (*Pro
 // should let Redis auto-generate the ID. If an ID is auto-generated, it will be
 // set on msg.ID for your reference. msg.Values is also required.
 func (p *Producer) Enqueue(ctx context.Context, msg *Message) error {
+	maxLen := cmp.Or(msg.StreamMaxLength, p.options.StreamMaxLength)
+	minId := cmp.Or(msg.StreamMinId, p.options.StreamMinId)
+	if maxLen > 0 {
+		minId = ""
+	}
+
 	args := &redis.XAddArgs{
 		ID:     msg.ID,
 		Stream: msg.Stream,
 		Values: msg.Values,
-		MaxLen: p.options.StreamMaxLength,
-		Approx: p.options.ApproximateMaxLength,
+		MaxLen: maxLen,
+		MinID:  minId,
+		Approx: p.options.UseApproximate,
+		Limit:  cmp.Or(msg.TrimLimit, p.options.TrimLimit),
 	}
 	id, err := p.redis.XAdd(ctx, args).Result()
 	if err != nil {

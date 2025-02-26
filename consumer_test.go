@@ -2,6 +2,8 @@ package redisqueue
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -249,6 +251,67 @@ func TestRun(t *testing.T) {
 		c.Run(ctx)
 	})
 
+	t.Run("reclaims pending messages maximum MaxDeliveryCount", func(tt *testing.T) {
+		ctx := context.Background()
+		var maxDeliveryCount int64 = 3
+		var visibilityTimeout time.Duration = 5 * time.Millisecond
+		var reclaimInterval time.Duration = 1 * time.Millisecond
+
+		// create a consumer
+		c, err := NewConsumerWithOptions(ctx, &ConsumerOptions{
+			VisibilityTimeout: visibilityTimeout,
+			BlockingTimeout:   10 * time.Millisecond,
+			ReclaimInterval:   1 * time.Millisecond,
+			BufferSize:        100,
+			Concurrency:       10,
+			MaxDeliveryCount:  maxDeliveryCount,
+		})
+		require.NoError(tt, err)
+
+		// create a producer
+		p, err := NewProducer()
+		require.NoError(tt, err)
+
+		// create consumer group
+		c.redis.XGroupDestroy(ctx, tt.Name(), c.options.GroupName)
+		c.redis.XGroupCreateMkStream(ctx, tt.Name(), c.options.GroupName, "$")
+
+		// enqueue a message
+		msg := &Message{
+			Stream: tt.Name(),
+			Values: map[string]interface{}{"test": "value"},
+		}
+		err = p.Enqueue(ctx, msg)
+		require.NoError(tt, err)
+
+		var deliveryCount int64 = 0
+
+		// register a handler that will assert the message and then shut down
+		// the consumer
+		c.Register(tt.Name(), func(m *Message) error {
+			slog.Info("message received", "id", m.ID, "delivery count", deliveryCount)
+
+			deliveryCount++
+			assert.Equal(tt, msg.ID, m.ID)
+			return fmt.Errorf("dummy error")
+		})
+
+		// // watch for consumer errors
+		// go func() {
+		// 	<-c.Errors
+		// }()
+
+		// run the consumer
+		go c.Run(ctx)
+
+		// wait for more than VisibilityTimeout + (ReclaimInterval*number_higher_than_max_dlivery_count) to ensure that
+		// the message was reclaimed more than MaxDeliveryCount
+
+		time.Sleep(visibilityTimeout + (reclaimInterval * 10) + 1*time.Millisecond)
+		c.Shutdown()
+		assert.Equal(tt, maxDeliveryCount, deliveryCount)
+	})
+
 	t.Run("doesn't reclaim if there is no VisibilityTimeout set", func(tt *testing.T) {
 		ctx := context.Background()
 
@@ -263,8 +326,8 @@ func TestRun(t *testing.T) {
 
 		// create a producer
 		p, err := NewProducerWithOptions(ctx, &ProducerOptions{
-			StreamMaxLength:      2,
-			ApproximateMaxLength: false,
+			StreamMaxLength: 2,
+			UseApproximate:  false,
 		})
 		require.NoError(tt, err)
 
@@ -345,8 +408,8 @@ func TestRun(t *testing.T) {
 
 		// create a producer
 		p, err := NewProducerWithOptions(ctx, &ProducerOptions{
-			StreamMaxLength:      1,
-			ApproximateMaxLength: false,
+			StreamMaxLength: 1,
+			UseApproximate:  false,
 		})
 		require.NoError(tt, err)
 
