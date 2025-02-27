@@ -2,7 +2,6 @@ package redisqueue
 
 import (
 	"context"
-	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -283,9 +282,7 @@ func (c *Consumer) reclaim(ctx context.Context) {
 					msgs := make([]string, 0)
 
 					for _, r := range res {
-						slog.Info("pending message", "id", r.ID, "count", r.RetryCount, "max", c.options.MaxDeliveryCount)
 						if c.options.MaxDeliveryCount > 0 && r.RetryCount >= c.options.MaxDeliveryCount {
-							slog.Info("message exceeded delivery count limit", "id", r.ID, "count", r.RetryCount, "max", c.options.MaxDeliveryCount)
 							err = c.redis.XAck(ctx, stream, c.options.GroupName, r.ID).Err()
 							if err != nil {
 								c.Errors <- errors.Wrapf(err, "error acknowledging after retry count exceeded for %q stream and %q message, ", stream, r.ID)
