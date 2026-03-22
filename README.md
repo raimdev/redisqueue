@@ -130,3 +130,12 @@ func process(msg *redisqueue.Message) error {
 	return nil
 }
 ```
+
+## Testing
+
+Tests require a Redis server running on `localhost:6379`.
+
+```sh
+docker compose up -d
+go test ./...
+```

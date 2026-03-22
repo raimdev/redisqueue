@@ -31,7 +31,7 @@ func TestNewConsumerWithOptions(t *testing.T) {
 		assert.NotNil(tt, c)
 	})
 
-	t.Run("sets defaults for Name, GroupName, BlockingTimeout, and ReclaimTimeout", func(tt *testing.T) {
+	t.Run("sets defaults for Name, GroupName, BlockingTimeout, ReclaimTimeout, BufferSize, and Concurrency", func(tt *testing.T) {
 		c, err := NewConsumerWithOptions(context.Background(), &ConsumerOptions{})
 		require.NoError(tt, err)
 
@@ -42,6 +42,9 @@ func TestNewConsumerWithOptions(t *testing.T) {
 		assert.Equal(tt, "redisqueue", c.options.GroupName)
 		assert.Equal(tt, 5*time.Second, c.options.BlockingTimeout)
 		assert.Equal(tt, 1*time.Second, c.options.ReclaimInterval)
+		assert.Equal(tt, 100, c.options.BufferSize)
+		assert.Equal(tt, 10, c.options.Concurrency)
+		assert.Equal(tt, 100, c.options.ErrorChannelBuffer)
 	})
 
 	t.Run("allows override of Name, GroupName, BlockingTimeout, ReclaimTimeout, and RedisClient", func(tt *testing.T) {
@@ -71,6 +74,56 @@ func TestNewConsumerWithOptions(t *testing.T) {
 
 		assert.Contains(tt, err.Error(), "dial tcp")
 	})
+
+	t.Run("returns an error for invalid BufferSize", func(tt *testing.T) {
+		_, err := NewConsumerWithOptions(context.Background(), &ConsumerOptions{
+			BufferSize: -1,
+		})
+		require.Error(tt, err)
+		assert.Contains(tt, err.Error(), "buffer size")
+	})
+
+	t.Run("returns an error for invalid Concurrency", func(tt *testing.T) {
+		_, err := NewConsumerWithOptions(context.Background(), &ConsumerOptions{
+			Concurrency: -1,
+		})
+		require.Error(tt, err)
+		assert.Contains(tt, err.Error(), "concurrency")
+	})
+}
+
+func TestSendErrorNonBlocking(t *testing.T) {
+	ctx := context.Background()
+	c, err := NewConsumerWithOptions(ctx, &ConsumerOptions{
+		ErrorChannelBuffer: 1,
+	})
+	require.NoError(t, err)
+
+	c.sendError(errors.New("first error"))
+
+	done := make(chan struct{})
+	go func() {
+		c.sendError(errors.New("second error"))
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("sendError blocked when error channel was full")
+	}
+}
+
+func TestAvailableCapacity(t *testing.T) {
+	c := &Consumer{
+		queue: make(chan *Message, 2),
+	}
+
+	assert.Equal(t, 2, c.availableCapacity())
+	c.queue <- &Message{}
+	assert.Equal(t, 1, c.availableCapacity())
+	c.queue <- &Message{}
+	assert.Equal(t, 0, c.availableCapacity())
 }
 
 func TestRegister(t *testing.T) {
@@ -187,6 +240,120 @@ func TestRun(t *testing.T) {
 
 		// run the consumer
 		c.Run(ctx)
+	})
+
+	t.Run("drains buffered messages on shutdown", func(tt *testing.T) {
+		ctx := context.Background()
+
+		c, err := NewConsumerWithOptions(ctx, &ConsumerOptions{
+			VisibilityTimeout: 0,
+			BlockingTimeout:   10 * time.Millisecond,
+			BufferSize:        2,
+			Concurrency:       1,
+		})
+		require.NoError(tt, err)
+
+		p, err := NewProducer()
+		require.NoError(tt, err)
+
+		c.redis.XGroupDestroy(ctx, tt.Name(), c.options.GroupName)
+		c.redis.XGroupCreateMkStream(ctx, tt.Name(), c.options.GroupName, "$")
+
+		err = p.Enqueue(ctx, &Message{
+			Stream: tt.Name(),
+			Values: map[string]interface{}{"index": 1},
+		})
+		require.NoError(tt, err)
+		err = p.Enqueue(ctx, &Message{
+			Stream: tt.Name(),
+			Values: map[string]interface{}{"index": 2},
+		})
+		require.NoError(tt, err)
+
+		started := make(chan struct{})
+		release := make(chan struct{})
+		processed := 0
+
+		c.Register(tt.Name(), func(m *Message) error {
+			processed++
+			if processed == 1 {
+				close(started)
+				<-release
+			}
+			return nil
+		})
+
+		// watch for consumer errors
+		go func() {
+			err := <-c.Errors
+			require.NoError(tt, err)
+		}()
+
+		done := make(chan struct{})
+		go func() {
+			c.Run(ctx)
+			close(done)
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(1 * time.Second):
+			tt.Fatal("timed out waiting for first message to start processing")
+		}
+
+		c.Shutdown()
+		close(release)
+
+		select {
+		case <-done:
+		case <-time.After(1 * time.Second):
+			tt.Fatal("timed out waiting for consumer to stop")
+		}
+
+		assert.Equal(tt, 2, processed)
+		pendingRes, err := c.redis.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: tt.Name(),
+			Group:  c.options.GroupName,
+			Start:  "-",
+			End:    "+",
+			Count:  10,
+		}).Result()
+		require.NoError(tt, err)
+		assert.Len(tt, pendingRes, 0)
+	})
+
+	t.Run("stops on context cancel", func(tt *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		c, err := NewConsumerWithOptions(ctx, &ConsumerOptions{
+			VisibilityTimeout: 0,
+			BlockingTimeout:   50 * time.Millisecond,
+			BufferSize:        1,
+			Concurrency:       1,
+		})
+		require.NoError(tt, err)
+
+		c.redis.XGroupDestroy(ctx, tt.Name(), c.options.GroupName)
+
+		c.Register(tt.Name(), func(m *Message) error {
+			return nil
+		})
+
+		done := make(chan struct{})
+		go func() {
+			c.Run(ctx)
+			close(done)
+		}()
+
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+
+		select {
+		case <-done:
+		case <-time.After(1 * time.Second):
+			tt.Fatal("timed out waiting for consumer to stop after context cancel")
+		}
 	})
 
 	t.Run("reclaims pending messages according to ReclaimInterval", func(tt *testing.T) {
